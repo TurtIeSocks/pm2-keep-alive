@@ -1,0 +1,15 @@
+{
+  "name": "pm2-keep-alive",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "author": "TurtIeSocks",
+  "type": "module",
+  "scripts": {
+    "start": "node ."
+  },
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.3.1"
+  }
+}
