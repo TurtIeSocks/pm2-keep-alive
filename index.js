@@ -64,7 +64,10 @@ if (INTERVAL_SECONDS) {
       isBad().then((bad) => {
         if (bad) {
           console.error('Bad health, restarting')
-          if (COMMAND) execAsync(COMMAND)
+          if (COMMAND)
+            execAsync(COMMAND).then(() =>
+              setTimeout(() => {}, INTERVAL_SECONDS * 1000)
+            )
           if (WEBHOOK)
             fetchWrapper(WEBHOOK, {
               waitTime: 5000,
@@ -84,6 +87,8 @@ if (INTERVAL_SECONDS) {
                 ],
               }),
             })
+        } else {
+          console.log('Health is good')
         }
       }),
     INTERVAL_SECONDS * 1000
