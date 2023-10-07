@@ -5,9 +5,14 @@ import { exec } from 'child_process'
 
 dotenv.config()
 
-const INTERVAL_SECONDS = process.env.INTERVAL_SECONDS
+const execAsync = promisify(exec)
+const setTimeoutAsync = promisify(setTimeout)
+
+const INTERVAL_MS = (process.env.INTERVAL_SECONDS
   ? +process.env.INTERVAL_SECONDS
-  : 0
+  : 0) * 1_000
+
+const RETRIES = process.env.RETRIES ? +process.env.RETRIES : 3
 
 const ENDPOINT = process.env.HEALTH_ENDPOINT
 
@@ -17,8 +22,6 @@ const WEBHOOK = process.env.WEBHOOK_URL
 
 if (!ENDPOINT) throw new Error('HEALTH_ENDPOINT is required')
 
-const execAsync = promisify(exec)
-
 /**
  * Wrapped around `fetch` with an abort controller and error catcher
  * @param {string} url
@@ -26,7 +29,7 @@ const execAsync = promisify(exec)
  */
 const fetchWrapper = async (
   url,
-  { waitTime, ...options } = { waitTime: 5000 }
+  { waitTime, ...options } = { waitTime: 1_000 }
 ) => {
   const signal = new AbortController()
   const timeout = setTimeout(() => signal.abort(), waitTime)
@@ -46,51 +49,55 @@ const fetchWrapper = async (
 
 /**
  * Simply checks whether the endpoint returns a 200
- * @returns {Promise<boolean>}
+ * @returns {Promise<{ isBad: boolean, attempt: number }>}
  */
-const isBad = async () => {
-  try {
-    console.log(`Checking ${ENDPOINT}`)
-    const resp = await fetchWrapper(ENDPOINT)
-    return !resp.ok
-  } catch (e) {
-    return true
+const checkEndpoint = async () => {
+  for (let attempt = 1; attempt <= RETRIES; attempt++) {
+    try {
+      console.log(`Attempt:`, attempt, `Checking ${ENDPOINT}`)
+      const resp = await fetchWrapper(ENDPOINT)
+      if (resp.ok) {
+        return { isBad: false, attempt }
+      }
+    } catch (e) {
+      console.warn('Attempt:', attempt, e instanceof Error ? e.message : e)
+    }
   }
+  return { isBad: true, attempt: RETRIES }
 }
 
-if (INTERVAL_SECONDS) {
+if (INTERVAL_MS) {
   setInterval(
-    () =>
-      isBad().then((bad) => {
-        if (bad) {
-          console.error('Bad health, restarting')
-          if (COMMAND)
-            execAsync(COMMAND).then(() =>
-              setTimeout(() => {}, INTERVAL_SECONDS * 1000)
-            )
-          if (WEBHOOK)
-            fetchWrapper(WEBHOOK, {
-              waitTime: 5000,
-              method: 'POST',
-              headers: {
-                'Content-type': 'application/json',
-              },
-              body: JSON.stringify({
-                content: null,
-                embeds: [
-                  {
-                    title: 'Bad Health Detected',
-                    color: 0xff0000,
-                    description: `Command: \`${COMMAND}\``,
-                    timestamp: new Date().toISOString(),
-                  },
-                ],
-              }),
-            })
-        } else {
-          console.log('Health is good')
+    async () => {
+      const status = await checkEndpoint()
+      if (status.isBad) {
+        console.error('Bad health after', status.attempt, 'attempts, restarting')
+        if (COMMAND) {
+          await execAsync(COMMAND)
         }
-      }),
-    INTERVAL_SECONDS * 1000
+        if (WEBHOOK)
+          fetchWrapper(WEBHOOK, {
+            waitTime: 5000,
+            method: 'POST',
+            headers: {
+              'Content-type': 'application/json',
+            },
+            body: JSON.stringify({
+              content: null,
+              embeds: [
+                {
+                  title: 'Bad Health Detected',
+                  color: 0xff0000,
+                  description: `Command: \`${COMMAND}\``,
+                  timestamp: new Date().toISOString(),
+                },
+              ],
+            }),
+          })
+      } else {
+        console.log('Health is good, attempt:', status.attempt, 'of', RETRIES)
+      }
+    },
+    INTERVAL_MS
   )
 }

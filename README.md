@@ -18,3 +18,4 @@ A hacky script to keep a naughty process alive in PM2 that doesn't want to auto 
 - Leaving `PM2_COMMAND` blank will not execute anything on error
 - Setting `INTERVAL_SECONDS` to `0` or nothing will run the script once and exit, if you wanted to instead run it only once or in cron
 - `WEBHOOK_URL` sends a Discord webhook alert when an error is detected
+- `RETRIES` is the number of times to retry the health endpoint before giving up
